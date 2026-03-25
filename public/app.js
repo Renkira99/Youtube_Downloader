@@ -101,7 +101,13 @@ document.addEventListener('DOMContentLoaded', () => {
       startSSE(id);
 
     } catch (err) {
-      appendLog(`Error: ${err.message}`, 'error');
+      const isNetworkError = err instanceof TypeError;
+      appendLog(
+        isNetworkError
+          ? 'Cannot reach server. Make sure it\'s running — launch "Launch YouTube Downloader.command".'
+          : `Error: ${err.message}`,
+        'error'
+      );
       resetForm();
     }
   });
@@ -186,6 +192,7 @@ document.addEventListener('DOMContentLoaded', () => {
       refreshHistoryBtn.classList.add('fa-spin');
       const res = await fetch(`${API_BASE}/api/downloads`);
       const files = await res.json();
+      document.getElementById('server-offline-banner')?.remove();
       
       historyList.innerHTML = '';
       
@@ -238,6 +245,7 @@ document.addEventListener('DOMContentLoaded', () => {
       historyList.appendChild(fragment);
     } catch (err) {
       console.error('Failed to load history', err);
+      return false;
     } finally {
       setTimeout(() => refreshHistoryBtn.classList.remove('fa-spin'), 500);
     }
@@ -245,6 +253,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   refreshHistoryBtn.addEventListener('click', loadHistory);
 
-  // Initial load
-  loadHistory();
+  // Initial load — show banner if server is unreachable
+  loadHistory().then(ok => {
+    if (ok === false && !document.getElementById('server-offline-banner')) {
+      const banner = document.createElement('div');
+      banner.id = 'server-offline-banner';
+      banner.style.cssText = 'background:#3d1a1a;color:#f87171;border:1px solid #7f1d1d;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:0.875rem;';
+      banner.innerHTML = '⚠️ Cannot connect to server. Launch <strong>Launch YouTube Downloader.command</strong> to start it.';
+      document.querySelector('.container main').prepend(banner);
+    }
+  });
 });
