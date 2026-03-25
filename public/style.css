@@ -414,3 +414,13 @@ header p {
   color: white;
   transform: scale(1.05);
 }
+
+.server-offline-banner {
+  background: #3d1a1a;
+  color: #f87171;
+  border: 1px solid #7f1d1d;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  font-size: 0.875rem;
+}

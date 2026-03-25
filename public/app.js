@@ -53,9 +53,8 @@ document.addEventListener('DOMContentLoaded', () => {
     line.textContent = message;
     terminalLogs.appendChild(line);
 
-    while (terminalLogs.childElementCount > MAX_LOG_LINES) {
-      terminalLogs.removeChild(terminalLogs.firstChild);
-    }
+    const excess = terminalLogs.childElementCount - MAX_LOG_LINES;
+    for (let i = 0; i < excess; i++) terminalLogs.firstChild.remove();
 
     // Auto scroll
     terminalLogs.scrollTop = terminalLogs.scrollHeight;
@@ -262,7 +261,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (ok === false && !document.getElementById('server-offline-banner')) {
       const banner = document.createElement('div');
       banner.id = 'server-offline-banner';
-      banner.style.cssText = 'background:#3d1a1a;color:#f87171;border:1px solid #7f1d1d;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:0.875rem;';
+      banner.className = 'server-offline-banner';
       banner.innerHTML = '⚠️ Cannot connect to server. Launch <strong>Launch YouTube Downloader.command</strong> to start it.';
       document.querySelector('.container main').prepend(banner);
     }

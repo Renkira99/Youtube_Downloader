@@ -56,6 +56,9 @@ function enqueueDownload(downloadId) {
   }
 }
 
+const PRACTICAL_VIDEO = 'bv*[protocol!=m3u8][protocol!=m3u8_native]';
+const PRACTICAL_AUDIO = 'ba[protocol!=m3u8][protocol!=m3u8_native]';
+
 function buildYtDlpArgs(download) {
   if (download.mode === 'audio') {
     const af = download.audioFormat;
@@ -67,8 +70,8 @@ function buildYtDlpArgs(download) {
   }
 
   const q = download.quality;
-  const practicalVideo = 'bv*[protocol!=m3u8][protocol!=m3u8_native]';
-  const practicalAudio = 'ba[protocol!=m3u8][protocol!=m3u8_native]';
+  const practicalVideo = PRACTICAL_VIDEO;
+  const practicalAudio = PRACTICAL_AUDIO;
   let formatFilter;
 
   if (q === 'best') {
@@ -139,6 +142,7 @@ function startDownload(downloadId) {
     lines.forEach(line => {
       line = stripAnsi(line).trim();
       if (!line) return;
+      if (line.length > 2048) line = line.slice(0, 2048) + '\u2026';
 
       let isProgress = false;
       let percent = 0;
@@ -164,6 +168,7 @@ function startDownload(downloadId) {
     lines.forEach(line => {
       line = stripAnsi(line).trim();
       if (line) {
+        if (line.length > 2048) line = line.slice(0, 2048) + '\u2026';
         download.sendEvent('log', { message: `ERROR: ${line}` });
       }
     });
@@ -249,7 +254,6 @@ app.post('/api/download', (req, res) => {
     format: format || 'mkv',
     audioFormat: audioFormat || 'mp3',
     status: 'pending',
-    logs: [],
     process: null,
     sendEvent: null,
     response: null,
