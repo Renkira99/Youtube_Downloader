@@ -11,6 +11,8 @@ echo "------------------------------------------"
 # Ensure Homebrew binaries (yt-dlp, ffmpeg, node) are on PATH
 export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
 
+chmod +x "$DIR/setup-launch-agent.sh" "$DIR/remove-launch-agent.sh" 2>/dev/null || true
+
 # Kill any existing process on port 3000
 EXISTING=$(lsof -ti tcp:3000)
 if [ -n "$EXISTING" ]; then
@@ -42,9 +44,8 @@ echo "Opening app in browser..."
 # Open the app
 open "http://localhost:3000"
 
-# Open the Youtube folder in Finder
-mkdir -p "$DIR/Youtube"
-open "$DIR/Youtube"
+# Open the Downloads folder in Finder
+open "/Users/overwatch/Downloads"
 
 echo ""
 echo "------------------------------------------"

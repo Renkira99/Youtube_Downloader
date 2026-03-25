@@ -1,27 +1,26 @@
-# yt-dlp Web
+# YouTube Downloader (yt-dlp Web UI)
 
-A local web interface for downloading YouTube videos and audio using [yt-dlp](https://github.com/yt-dlp/yt-dlp). Double-click to launch — no command line needed.
+Local web app for downloading YouTube video/audio with `yt-dlp`, optimized for low CPU/RAM and always-ready startup.
 
-![yt-dlp Web](public/favicon.png)
+## What you get
 
-## Features
-
-- Download YouTube videos in **MKV, MP4, or WebM** format
-- Extract audio as **MP3, AAC, M4A, Opus, FLAC**, or best quality
-- Quality selection: **4K (2160p), 1440p, 1080p, 720p, 480p, 360p**, or best available
-- Real-time download progress with a terminal-style log view
-- Download history panel with file sizes and timestamps
-- Queue support for multiple downloads
-- Downloads saved to a local `Youtube/` folder, which opens automatically on launch
+- Video downloads: `mkv`, `mp4`, `webm`
+- Audio extraction: `mp3`, `aac`, `m4a`, `opus`, `flac`, or best
+- Quality options from `360p` up to `4K`
+- Real-time progress + logs via SSE
+- Queue support (default single active download for lower resource usage)
+- Download history panel
+- Downloads saved to project-local `Youtube/`
+- Optional macOS login auto-start (best for pinned browser tabs)
 
 ## Requirements
 
-- macOS (Apple Silicon)
-- [Node.js](https://nodejs.org) via Homebrew: `brew install node`
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) via Homebrew: `brew install yt-dlp`
-- [ffmpeg](https://ffmpeg.org) via Homebrew: `brew install ffmpeg`
+- macOS
+- `node` (Homebrew: `brew install node`)
+- `yt-dlp` (`brew install yt-dlp`)
+- `ffmpeg` (`brew install ffmpeg`)
 
-## Installation
+## Install
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/Youtube_Downloader.git
@@ -29,41 +28,119 @@ cd Youtube_Downloader
 npm install
 ```
 
-## Usage
+## Quick start
 
-**Option A — Double-click launcher:**
-
-Double-click `Launch YouTube Downloader.command` in Finder. It will:
-1. Kill any existing server on port 3000
-2. Start the Node.js server
-3. Open the app in your browser
-4. Open the `Youtube/` downloads folder in Finder
-
-**Option B — Terminal:**
+Run normally:
 
 ```bash
 npm start
 ```
 
-Then open [http://localhost:3000](http://localhost:3000) in your browser.
+Open:
 
-## How it works
+`http://localhost:3000`
 
-- A Node.js/Express server runs locally on port 3000
-- The frontend communicates with the server via a REST API
-- Downloads are streamed in real time using **Server-Sent Events (SSE)**
-- yt-dlp handles all downloading and format conversion
+## Best setup for pinned Zen tab (recommended)
 
-## Project Structure
+Install login auto-start once:
 
+```bash
+npm run autostart:install
 ```
+
+This creates a user LaunchAgent that:
+
+- starts server on login/restart
+- keeps it alive (`KeepAlive`)
+- runs low-impact mode by default (`LOW_IMPACT_MODE=1`)
+- writes logs to `~/Library/Logs/YoutubeDownloader/`
+
+Remove auto-start:
+
+```bash
+npm run autostart:remove
+```
+
+## Other ways to launch
+
+Double-click `Launch YouTube Downloader.command` to:
+
+1. stop anything already on port `3000`
+2. start the server
+3. open the app URL
+4. open `/Users/overwatch/Downloads` in Finder
+
+## Low-impact mode (default)
+
+Low-impact mode is enabled by default to keep background resource usage low.
+
+Force normal mode:
+
+```bash
+LOW_IMPACT_MODE=0 npm start
+```
+
+Explicit low-impact mode:
+
+```bash
+LOW_IMPACT_MODE=1 npm start
+```
+
+Default low-impact tuning:
+
+- `DEFAULT_VIDEO_QUALITY=720`
+- `DEFAULT_VIDEO_FORMAT=mp4`
+- `DEFAULT_AUDIO_FORMAT=best`
+- `PROGRESS_EMIT_INTERVAL_MS=700`
+- `PROGRESS_EMIT_STEP_PERCENT=3`
+- `DOWNLOADS_CACHE_TTL_MS=10000`
+- `MAX_HISTORY_ITEMS=200`
+
+## Useful environment variables
+
+- `PORT` (default `3000`)
+- `DOWNLOADS_DIR` (default `./Youtube`)
+- `MAX_CONCURRENT_DOWNLOADS` (default `1`)
+- `MAX_QUEUE_SIZE` (default `10`)
+- `LOW_IMPACT_MODE` (`1` default)
+- `DEFAULT_VIDEO_QUALITY`
+- `DEFAULT_VIDEO_FORMAT`
+- `DEFAULT_AUDIO_FORMAT`
+- `PROGRESS_EMIT_INTERVAL_MS`
+- `PROGRESS_EMIT_STEP_PERCENT`
+- `DOWNLOADS_CACHE_TTL_MS`
+- `MAX_HISTORY_ITEMS`
+
+## Health and config endpoints
+
+- `GET /api/health` -> lightweight readiness check
+- `GET /api/config` -> active low-impact/default tuning values
+
+## Troubleshooting
+
+- `Cannot connect to server`:
+  - verify with `curl http://localhost:3000/api/health`
+  - if needed: `npm start`
+  - for always-ready behavior: `npm run autostart:install`
+
+- Port already in use:
+  - stop existing process on `3000`, then restart
+
+- `yt-dlp`/`ffmpeg` errors:
+  - ensure both are installed and available in PATH
+
+## Project layout
+
+```text
 .
-├── Launch YouTube Downloader.command   # macOS double-click launcher
-├── server.js                           # Express server + yt-dlp integration
+├── server.js
 ├── public/
-│   ├── app.html                        # Frontend UI
-│   ├── app.js                          # Frontend logic
-│   └── style.css                       # Styles
-├── Youtube/                            # Downloaded files land here
+│   ├── app.html
+│   ├── app.js
+│   └── style.css
+├── Youtube/
+├── Launch YouTube Downloader.command
+├── setup-launch-agent.sh
+├── remove-launch-agent.sh
 └── package.json
 ```

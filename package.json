@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "autostart:install": "bash ./setup-launch-agent.sh",
+    "autostart:remove": "bash ./remove-launch-agent.sh"
   },
   "dependencies": {
     "express": "^4.18.2"

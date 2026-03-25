@@ -8,6 +8,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const progressPercent = document.getElementById('progress-percent');
   const historyList = document.getElementById('history-list');
   const refreshHistoryBtn = document.getElementById('refresh-history');
+  const qualitySelect = document.getElementById('quality-select');
+  const formatSelect = document.getElementById('format-select');
+  const audioFormatSelect = document.getElementById('audio-format-select');
 
   // Dropdown elements
   const modeSelect = document.getElementById('mode-select');
@@ -25,10 +28,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let eventSource = null;
   const API_BASE = window.location.protocol === 'file:' ? 'http://localhost:3000' : '';
-  const MAX_LOG_LINES = 250;
-  const PROGRESS_UPDATE_INTERVAL_MS = 200;
+  const DEFAULT_MAX_LOG_LINES = 250;
+  const DEFAULT_PROGRESS_UPDATE_INTERVAL_MS = 200;
+  let maxLogLines = DEFAULT_MAX_LOG_LINES;
+  let progressUpdateIntervalMs = DEFAULT_PROGRESS_UPDATE_INTERVAL_MS;
+  let progressLogStepPercent = 5;
+  let logFlushIntervalMs = 100;
+  let lowImpactMode = false;
+  let logQueue = [];
+  let flushLogsTimer = null;
   let lastProgressRender = 0;
   let lastProgressLogBucket = -1;
+  let maxHistoryItems = 1000;
+  let reconnectTimer = null;
+  let reconnectAttempts = 0;
 
   // Format bytes to human readable
   function formatBytes(bytes, decimals = 2) {
@@ -46,18 +59,92 @@ document.addEventListener('DOMContentLoaded', () => {
     return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 
+  function clearQueuedLogs() {
+    logQueue = [];
+    if (flushLogsTimer) {
+      clearTimeout(flushLogsTimer);
+      flushLogsTimer = null;
+    }
+  }
+
+  function flushQueuedLogs() {
+    flushLogsTimer = null;
+    if (logQueue.length === 0) return;
+
+    const fragment = document.createDocumentFragment();
+    const linesToRender = logQueue;
+    logQueue = [];
+
+    linesToRender.forEach(({ message, type }) => {
+      const line = document.createElement('div');
+      line.className = `terminal-line ${type}`;
+      line.textContent = message;
+      fragment.appendChild(line);
+    });
+
+    terminalLogs.appendChild(fragment);
+
+    const excess = terminalLogs.childElementCount - maxLogLines;
+    for (let i = 0; i < excess; i++) {
+      terminalLogs.firstChild.remove();
+    }
+
+    terminalLogs.scrollTop = terminalLogs.scrollHeight;
+  }
+
+  function scheduleLogFlush() {
+    if (flushLogsTimer) return;
+    flushLogsTimer = setTimeout(flushQueuedLogs, logFlushIntervalMs);
+  }
+
   // Add log to terminal
   function appendLog(message, type = '') {
-    const line = document.createElement('div');
-    line.className = `terminal-line ${type}`;
-    line.textContent = message;
-    terminalLogs.appendChild(line);
+    logQueue.push({ message, type });
+    scheduleLogFlush();
+  }
 
-    const excess = terminalLogs.childElementCount - MAX_LOG_LINES;
-    for (let i = 0; i < excess; i++) terminalLogs.firstChild.remove();
+  function applyServerConfig(config) {
+    if (!config || typeof config !== 'object') return;
 
-    // Auto scroll
-    terminalLogs.scrollTop = terminalLogs.scrollHeight;
+    lowImpactMode = Boolean(config.lowImpactMode);
+    document.body.classList.toggle('low-impact-mode', lowImpactMode);
+
+    if (lowImpactMode) {
+      maxLogLines = 120;
+      progressUpdateIntervalMs = 400;
+      progressLogStepPercent = 10;
+      logFlushIntervalMs = 160;
+    }
+
+    const defaults = config.defaults || {};
+    if (defaults.quality && Array.from(qualitySelect.options).some((o) => o.value === defaults.quality)) {
+      qualitySelect.value = defaults.quality;
+    }
+    if (defaults.format && Array.from(formatSelect.options).some((o) => o.value === defaults.format)) {
+      formatSelect.value = defaults.format;
+    }
+    if (defaults.audioFormat && Array.from(audioFormatSelect.options).some((o) => o.value === defaults.audioFormat)) {
+      audioFormatSelect.value = defaults.audioFormat;
+    }
+
+    const tuning = config.tuning || {};
+    if (Number.isFinite(tuning.progressEmitIntervalMs) && tuning.progressEmitIntervalMs > 0) {
+      progressUpdateIntervalMs = Math.max(progressUpdateIntervalMs, Math.min(tuning.progressEmitIntervalMs, 1000));
+    }
+    if (Number.isFinite(tuning.maxHistoryItems) && tuning.maxHistoryItems > 0) {
+      maxHistoryItems = tuning.maxHistoryItems;
+    }
+  }
+
+  async function loadServerConfig() {
+    try {
+      const res = await fetch(`${API_BASE}/api/config`);
+      if (!res.ok) return;
+      const config = await res.json();
+      applyServerConfig(config);
+    } catch (err) {
+      console.warn('Could not load server config', err);
+    }
   }
 
   // Handle form submission
@@ -70,6 +157,7 @@ document.addEventListener('DOMContentLoaded', () => {
     downloadBtn.disabled = true;
     urlInput.disabled = true;
     statusCard.classList.remove('hidden');
+    clearQueuedLogs();
     terminalLogs.innerHTML = '';
     progressFill.style.width = '0%';
     progressPercent.textContent = '0%';
@@ -85,9 +173,9 @@ document.addEventListener('DOMContentLoaded', () => {
         body: JSON.stringify({
           url,
           mode: modeSelect.value,
-          quality: document.getElementById('quality-select').value,
-          format: document.getElementById('format-select').value,
-          audioFormat: document.getElementById('audio-format-select').value
+          quality: qualitySelect.value,
+          format: formatSelect.value,
+          audioFormat: audioFormatSelect.value
         })
       });
 
@@ -103,7 +191,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const isNetworkError = err instanceof TypeError;
       appendLog(
         isNetworkError
-          ? 'Cannot reach server. Make sure it\'s running — launch "Launch YouTube Downloader.command".'
+          ? 'Cannot reach server. It should auto-start at login; retrying when available.'
           : `Error: ${err.message}`,
         'error'
       );
@@ -134,13 +222,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (typeof data.percent === 'number') {
         const now = Date.now();
-        if (now - lastProgressRender >= PROGRESS_UPDATE_INTERVAL_MS || data.percent >= 100) {
+        if (now - lastProgressRender >= progressUpdateIntervalMs || data.percent >= 100) {
           progressFill.style.width = `${data.percent}%`;
           progressPercent.textContent = `${data.percent}%`;
           lastProgressRender = now;
         }
 
-        const progressBucket = Math.floor(data.percent / 5);
+        const progressBucket = Math.floor(data.percent / progressLogStepPercent);
         // Detect new download phase (e.g. audio after video) — percent resets to ~0
         if (data.percent < 2 && lastProgressLogBucket > 5) {
           lastProgressLogBucket = -1;
@@ -166,9 +254,10 @@ document.addEventListener('DOMContentLoaded', () => {
       appendLog(data.message, 'success');
       progressFill.style.width = '100%';
       progressPercent.textContent = '100%';
+      flushQueuedLogs();
       closeStreamSilently(eventSource);
       resetForm();
-      loadHistory(); // Refresh history
+      void loadHistory(); // Refresh history
     });
 
     eventSource.onerror = (err) => {
@@ -177,9 +266,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       console.error("SSE Error:", err);
-      appendLog('Connection interrupted. Please try again.', 'error');
+      appendLog('Connection interrupted. Trying to reconnect…', 'error');
       eventSource.close();
       resetForm();
+      scheduleReconnect();
     };
   }
 
@@ -196,16 +286,18 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await fetch(`${API_BASE}/api/downloads`);
       const files = await res.json();
       document.getElementById('server-offline-banner')?.remove();
+      clearReconnect();
       
       historyList.innerHTML = '';
+      const trimmedFiles = Array.isArray(files) ? files.slice(0, maxHistoryItems) : [];
       
-      if (files.length === 0) {
+      if (trimmedFiles.length === 0) {
         historyList.innerHTML = '<div class="history-empty">No downloads yet.</div>';
-        return;
+        return true;
       }
 
       const fragment = document.createDocumentFragment();
-      files.forEach(file => {
+      trimmedFiles.forEach(file => {
         const item = document.createElement('div');
         item.className = 'history-item';
 
@@ -246,6 +338,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
 
       historyList.appendChild(fragment);
+      return true;
     } catch (err) {
       console.error('Failed to load history', err);
       return false;
@@ -256,14 +349,38 @@ document.addEventListener('DOMContentLoaded', () => {
 
   refreshHistoryBtn.addEventListener('click', loadHistory);
 
+  function clearReconnect() {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    reconnectAttempts = 0;
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) return;
+    const backoffMs = Math.min(30000, 1000 * Math.pow(2, Math.min(reconnectAttempts, 5)));
+    reconnectTimer = setTimeout(async () => {
+      reconnectTimer = null;
+      reconnectAttempts += 1;
+      const ok = await loadHistory();
+      if (ok !== true) {
+        scheduleReconnect();
+      }
+    }, backoffMs);
+  }
+
+  loadServerConfig();
+
   // Initial load — show banner if server is unreachable
   loadHistory().then(ok => {
     if (ok === false && !document.getElementById('server-offline-banner')) {
       const banner = document.createElement('div');
       banner.id = 'server-offline-banner';
       banner.className = 'server-offline-banner';
-      banner.innerHTML = '⚠️ Cannot connect to server. Launch <strong>Launch YouTube Downloader.command</strong> to start it.';
+      banner.innerHTML = '⚠️ Cannot connect to server yet. It should auto-start; this page will retry automatically.';
       document.querySelector('.container main').prepend(banner);
+      scheduleReconnect();
     }
   });
 });

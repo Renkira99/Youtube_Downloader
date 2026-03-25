@@ -6,9 +6,36 @@ const { randomUUID } = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const DOWNLOADS_DIR = path.join(__dirname, 'Youtube');
+const DOWNLOADS_DIR = process.env.DOWNLOADS_DIR || path.join(__dirname, 'Youtube');
 const MAX_CONCURRENT_DOWNLOADS = Math.max(parseInt(process.env.MAX_CONCURRENT_DOWNLOADS || '1', 10) || 1, 1);
 const MAX_QUEUE_SIZE = Math.max(parseInt(process.env.MAX_QUEUE_SIZE || '10', 10) || 10, 1);
+
+function envFlag(name, fallback = false) {
+  const value = process.env[name];
+  if (value == null) return fallback;
+  return /^(1|true|yes|on)$/i.test(value.trim());
+}
+
+function envInt(name, fallback, min = 0) {
+  const parsed = parseInt(process.env[name] || '', 10);
+  if (Number.isNaN(parsed)) return fallback;
+  return Math.max(parsed, min);
+}
+
+const LOW_IMPACT_MODE = envFlag('LOW_IMPACT_MODE', true);
+const DEFAULT_VIDEO_QUALITY = process.env.DEFAULT_VIDEO_QUALITY || (LOW_IMPACT_MODE ? '720' : '1440');
+const DEFAULT_VIDEO_FORMAT = process.env.DEFAULT_VIDEO_FORMAT || (LOW_IMPACT_MODE ? 'mp4' : 'mkv');
+const DEFAULT_AUDIO_FORMAT = process.env.DEFAULT_AUDIO_FORMAT || (LOW_IMPACT_MODE ? 'best' : 'mp3');
+const PROGRESS_EMIT_INTERVAL_MS = envInt('PROGRESS_EMIT_INTERVAL_MS', LOW_IMPACT_MODE ? 700 : 0, 0);
+const PROGRESS_EMIT_STEP_PERCENT = envInt('PROGRESS_EMIT_STEP_PERCENT', LOW_IMPACT_MODE ? 3 : 0, 0);
+const DOWNLOADS_CACHE_TTL_MS = envInt('DOWNLOADS_CACHE_TTL_MS', LOW_IMPACT_MODE ? 10000 : 1500, 0);
+const STALE_PENDING_DOWNLOAD_MS = envInt('STALE_PENDING_DOWNLOAD_MS', 10000, 1000);
+const MAX_HISTORY_ITEMS = envInt('MAX_HISTORY_ITEMS', LOW_IMPACT_MODE ? 200 : 1000, 1);
+
+const MEDIA_EXTENSIONS = new Set([
+  '.mp4', '.mkv', '.webm', '.avi', '.mov', '.m4v', '.flv', '.ts', '.m2ts',
+  '.mp3', '.m4a', '.opus', '.flac', '.wav', '.aac', '.ogg', '.m4b'
+]);
 
 // Ensure downloads directory exists
 if (!fs.existsSync(DOWNLOADS_DIR)) {
@@ -32,6 +59,27 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'app.html'));
 });
 
+app.get('/api/config', (req, res) => {
+  res.json({
+    lowImpactMode: LOW_IMPACT_MODE,
+    defaults: {
+      quality: DEFAULT_VIDEO_QUALITY,
+      format: DEFAULT_VIDEO_FORMAT,
+      audioFormat: DEFAULT_AUDIO_FORMAT
+    },
+    tuning: {
+      progressEmitIntervalMs: PROGRESS_EMIT_INTERVAL_MS,
+      progressEmitStepPercent: PROGRESS_EMIT_STEP_PERCENT,
+      downloadsCacheTtlMs: DOWNLOADS_CACHE_TTL_MS,
+      maxHistoryItems: MAX_HISTORY_ITEMS
+    }
+  });
+});
+
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true });
+});
+
 // Helper to strip ANSI codes from yt-dlp output
 function stripAnsi(text) {
   return text.replace(
@@ -44,6 +92,15 @@ function stripAnsi(text) {
 const activeDownloads = new Map();
 const waitingQueue = [];
 let runningDownloads = 0;
+const downloadsCache = {
+  expiresAt: 0,
+  items: null
+};
+
+function invalidateDownloadsCache() {
+  downloadsCache.expiresAt = 0;
+  downloadsCache.items = null;
+}
 
 function removeFromQueue(downloadId) {
   const idx = waitingQueue.indexOf(downloadId);
@@ -60,13 +117,24 @@ const PRACTICAL_VIDEO = 'bv*[protocol!=m3u8][protocol!=m3u8_native]';
 const PRACTICAL_AUDIO = 'ba[protocol!=m3u8][protocol!=m3u8_native]';
 
 function buildYtDlpArgs(download) {
+  const outputTemplate = path.join(DOWNLOADS_DIR, '%(title)s.%(ext)s');
+
   if (download.mode === 'audio') {
     const af = download.audioFormat;
+    const args = ['-x'];
+
     if (af === 'best') {
-      return ['-x', '--newline', '-o', path.join(DOWNLOADS_DIR, '%(title)s.%(ext)s'), download.url];
+      args.push('--newline', '-o', outputTemplate);
+    } else {
+      args.push('--audio-format', af, '--newline', '-o', path.join(DOWNLOADS_DIR, `%(title)s.${af}`));
     }
 
-    return ['-x', '--audio-format', af, '--newline', '-o', path.join(DOWNLOADS_DIR, `%(title)s.${af}`), download.url];
+    if (LOW_IMPACT_MODE) {
+      args.push('--concurrent-fragments', '1');
+    }
+
+    args.push(download.url);
+    return args;
   }
 
   const q = download.quality;
@@ -96,15 +164,21 @@ function buildYtDlpArgs(download) {
     sortParts.push('vext:webm', 'aext:webm');
   }
 
-  return [
+  const args = [
     '-f', formatFilter,
     '-S', sortParts.join(','),
     '--format-sort-force',
     '--merge-output-format', download.format,
     '--newline',
-    '-o', path.join(DOWNLOADS_DIR, '%(title)s.%(ext)s'),
-    download.url
+    '-o', outputTemplate
   ];
+
+  if (LOW_IMPACT_MODE) {
+    args.push('--concurrent-fragments', '1');
+  }
+
+  args.push(download.url);
+  return args;
 }
 
 function processQueue() {
@@ -134,6 +208,42 @@ function startDownload(downloadId) {
   let finalized = false;
 
   let stdoutBuffer = '';
+  const emitProgress = (message, percent) => {
+    if (typeof percent !== 'number' || !Number.isFinite(percent)) {
+      download.sendEvent('progress', { message, percent: null });
+      return;
+    }
+
+    if (download.lastProgressSentPercent >= 0 && percent + 0.25 < download.lastProgressSentPercent) {
+      download.lastProgressSentPercent = -1;
+      download.lastProgressSentAt = 0;
+    }
+
+    if (PROGRESS_EMIT_INTERVAL_MS <= 0 && PROGRESS_EMIT_STEP_PERCENT <= 0) {
+      download.lastProgressSentAt = Date.now();
+      download.lastProgressSentPercent = percent;
+      download.sendEvent('progress', { message, percent });
+      return;
+    }
+
+    const now = Date.now();
+    const enoughTimeElapsed =
+      PROGRESS_EMIT_INTERVAL_MS <= 0 || now - download.lastProgressSentAt >= PROGRESS_EMIT_INTERVAL_MS;
+    const enoughProgressAdvanced =
+      PROGRESS_EMIT_STEP_PERCENT <= 0 ||
+      download.lastProgressSentPercent < 0 ||
+      percent >= 100 ||
+      percent - download.lastProgressSentPercent >= PROGRESS_EMIT_STEP_PERCENT;
+
+    if (!enoughTimeElapsed && !enoughProgressAdvanced && percent < 100) {
+      return;
+    }
+
+    download.lastProgressSentAt = now;
+    download.lastProgressSentPercent = percent;
+    download.sendEvent('progress', { message, percent });
+  };
+
   ytdlp.stdout.on('data', (data) => {
     stdoutBuffer += data.toString();
     const lines = stdoutBuffer.split('\n');
@@ -153,10 +263,12 @@ function startDownload(downloadId) {
         percent = parseFloat(progressMatch[1]);
       }
 
-      download.sendEvent(isProgress ? 'progress' : 'log', {
-        message: line,
-        percent: isProgress ? percent : null
-      });
+      if (isProgress) {
+        emitProgress(line, percent);
+        return;
+      }
+
+      download.sendEvent('log', { message: line });
     });
   });
 
@@ -207,6 +319,12 @@ function startDownload(downloadId) {
       }
     }
 
+    if (stillActive.pendingCleanupTimer) {
+      clearTimeout(stillActive.pendingCleanupTimer);
+      stillActive.pendingCleanupTimer = null;
+    }
+
+    invalidateDownloadsCache();
     activeDownloads.delete(downloadId);
     processQueue();
   };
@@ -250,23 +368,31 @@ app.post('/api/download', (req, res) => {
   activeDownloads.set(downloadId, {
     url: normalizedUrl,
     mode: mode || 'video',
-    quality: quality || '1440',
-    format: format || 'mkv',
-    audioFormat: audioFormat || 'mp3',
+    quality: quality || DEFAULT_VIDEO_QUALITY,
+    format: format || DEFAULT_VIDEO_FORMAT,
+    audioFormat: audioFormat || DEFAULT_AUDIO_FORMAT,
     status: 'pending',
     process: null,
     sendEvent: null,
     response: null,
-    clientDisconnected: false
+    clientDisconnected: false,
+    pendingCleanupTimer: null,
+    lastProgressSentAt: 0,
+    lastProgressSentPercent: -1
   });
 
   // Prevent memory leak if SSE client never connects
-  setTimeout(() => {
+  const pendingCleanupTimer = setTimeout(() => {
     const download = activeDownloads.get(downloadId);
     if (download && download.status === 'pending') {
       activeDownloads.delete(downloadId);
     }
-  }, 10000);
+  }, STALE_PENDING_DOWNLOAD_MS);
+
+  const createdDownload = activeDownloads.get(downloadId);
+  if (createdDownload) {
+    createdDownload.pendingCleanupTimer = pendingCleanupTimer;
+  }
 
   res.json({ id: downloadId });
 });
@@ -300,6 +426,10 @@ app.get('/api/stream/:id', (req, res) => {
   download.sendEvent = sendEvent;
   download.response = res;
   download.status = 'queued';
+  if (download.pendingCleanupTimer) {
+    clearTimeout(download.pendingCleanupTimer);
+    download.pendingCleanupTimer = null;
+  }
 
   const queuePosition = waitingQueue.length + 1;
   sendEvent('log', { message: `Queued. Position: ${queuePosition}` });
@@ -322,9 +452,17 @@ app.get('/api/stream/:id', (req, res) => {
 });
 
 app.get('/api/downloads', async (req, res) => {
+  if (DOWNLOADS_CACHE_TTL_MS > 0 && downloadsCache.items && Date.now() < downloadsCache.expiresAt) {
+    return res.json(downloadsCache.items);
+  }
+
   try {
     const entries = await fs.promises.readdir(DOWNLOADS_DIR, { withFileTypes: true });
-    const visibleFiles = entries.filter(entry => entry.isFile() && !entry.name.startsWith('.'));
+    const visibleFiles = entries.filter(entry =>
+      entry.isFile() &&
+      !entry.name.startsWith('.') &&
+      MEDIA_EXTENSIONS.has(path.extname(entry.name).toLowerCase())
+    );
 
     const fileStats = await Promise.all(
       visibleFiles.map(async (entry) => {
@@ -339,8 +477,14 @@ app.get('/api/downloads', async (req, res) => {
     );
 
     fileStats.sort((a, b) => b.mtime - a.mtime);
-    res.json(fileStats);
+    const limitedStats = fileStats.slice(0, MAX_HISTORY_ITEMS);
+    if (DOWNLOADS_CACHE_TTL_MS > 0) {
+      downloadsCache.items = limitedStats;
+      downloadsCache.expiresAt = Date.now() + DOWNLOADS_CACHE_TTL_MS;
+    }
+    res.json(limitedStats);
   } catch (err) {
+    invalidateDownloadsCache();
     res.status(500).json({ error: 'Could not read directory' });
   }
 });
@@ -366,6 +510,18 @@ app.get('/api/downloads/:filename', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
+  if (LOW_IMPACT_MODE) {
+    console.log('Low-impact mode is enabled (LOW_IMPACT_MODE=1).');
+  }
+});
+
+server.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use. Server did not start.`);
+    process.exit(1);
+  }
+  console.error('Server failed to start:', err && err.message ? err.message : err);
+  process.exit(1);
 });

@@ -45,9 +45,33 @@ body {
   transform: translateZ(0);
 }
 
+body.low-impact-mode .background-animation {
+  animation: none;
+  display: none;
+}
+
 @keyframes rotateBackground {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .background-animation,
+  .pulse-dot {
+    animation: none !important;
+  }
+
+  .card,
+  #download-btn,
+  .history-item,
+  .download-link,
+  .progress-bar-fill {
+    transition: none !important;
+  }
+
+  .history-item:hover {
+    transform: none;
+  }
 }
 
 .container {
@@ -90,6 +114,11 @@ header p {
   margin-bottom: 24px;
   box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.5);
   transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+body.low-impact-mode .card {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .input-group {
