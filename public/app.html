@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>yt-dlp Downloader</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+  
+  <div class="background-animation"></div>
+
+  <div class="container">
+    <header>
+      <h1><i class="fa-solid fa-cloud-arrow-down"></i> yt-dlp Web</h1>
+      <p>High quality video downloads right to your local drive</p>
+    </header>
+
+    <main>
+      <div class="card input-card">
+        <form id="download-form">
+          <div class="input-group">
+            <i class="fa-brands fa-youtube input-icon"></i>
+            <input type="url" id="url-input" placeholder="Paste YouTube URL here..." required autocomplete="off">
+            <button type="submit" id="download-btn">
+              <span>Download</span>
+              <i class="fa-solid fa-arrow-right"></i>
+            </button>
+          </div>
+
+          <div class="options-row">
+            <div class="option-group" id="mode-group">
+              <label for="mode-select"><i class="fa-solid fa-film"></i> Mode</label>
+              <select id="mode-select">
+                <option value="video">Video</option>
+                <option value="audio">Audio Only</option>
+              </select>
+            </div>
+
+            <div class="option-group" id="quality-group">
+              <label for="quality-select"><i class="fa-solid fa-sliders"></i> Quality</label>
+              <select id="quality-select">
+                <option value="2160">4K (2160p)</option>
+                <option value="1440" selected>1440p</option>
+                <option value="1080">1080p</option>
+                <option value="720">720p</option>
+                <option value="480">480p</option>
+                <option value="360">360p</option>
+                <option value="best">Best Available</option>
+              </select>
+            </div>
+
+            <div class="option-group" id="format-group">
+              <label for="format-select"><i class="fa-solid fa-box"></i> Format</label>
+              <select id="format-select">
+                <option value="mkv" selected>MKV</option>
+                <option value="mp4">MP4</option>
+                <option value="webm">WebM</option>
+              </select>
+            </div>
+
+            <div class="option-group hidden" id="audio-format-group">
+              <label for="audio-format-select"><i class="fa-solid fa-music"></i> Audio Format</label>
+              <select id="audio-format-select">
+                <option value="mp3">MP3</option>
+                <option value="aac">AAC</option>
+                <option value="m4a">M4A</option>
+                <option value="opus">Opus</option>
+                <option value="flac">FLAC</option>
+                <option value="best">Best Quality</option>
+              </select>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <div class="card status-card hidden" id="status-card">
+        <div class="status-header">
+          <h3>Downloading</h3>
+          <span class="pulse-dot"></span>
+        </div>
+        
+        <div class="progress-container">
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" id="progress-fill"></div>
+          </div>
+          <div class="progress-stats">
+            <span id="progress-percent">0%</span>
+          </div>
+        </div>
+
+        <div class="terminal-view" id="terminal-logs">
+          <!-- Logs go here -->
+        </div>
+      </div>
+
+      <div class="card history-card" id="history-card">
+        <div class="history-header">
+          <h3><i class="fa-solid fa-clock-rotate-left"></i> Download History</h3>
+          <button id="refresh-history" class="icon-btn" title="Refresh">
+            <i class="fa-solid fa-rotate-right"></i>
+          </button>
+        </div>
+        <div class="history-list" id="history-list">
+          <div class="history-empty">No downloads yet.</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
