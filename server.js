@@ -6,7 +6,7 @@ const { randomUUID } = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const DOWNLOADS_DIR = process.env.DOWNLOADS_DIR || path.join(__dirname, 'Youtube');
+const DOWNLOADS_DIR = process.env.DOWNLOADS_DIR || '/Users/overwatch/Downloads';
 const MAX_CONCURRENT_DOWNLOADS = Math.max(parseInt(process.env.MAX_CONCURRENT_DOWNLOADS || '1', 10) || 1, 1);
 const MAX_QUEUE_SIZE = Math.max(parseInt(process.env.MAX_QUEUE_SIZE || '10', 10) || 10, 1);
 
@@ -35,6 +35,9 @@ const MAX_HISTORY_ITEMS = envInt('MAX_HISTORY_ITEMS', LOW_IMPACT_MODE ? 200 : 10
 const MEDIA_EXTENSIONS = new Set([
   '.mp4', '.mkv', '.webm', '.avi', '.mov', '.m4v', '.flv', '.ts', '.m2ts',
   '.mp3', '.m4a', '.opus', '.flac', '.wav', '.aac', '.ogg', '.m4b'
+]);
+const HISTORY_VIDEO_EXTENSIONS = new Set([
+  '.mp4', '.mkv', '.webm', '.avi', '.mov', '.m4v', '.flv', '.ts', '.m2ts'
 ]);
 
 // Ensure downloads directory exists
@@ -461,7 +464,7 @@ app.get('/api/downloads', async (req, res) => {
     const visibleFiles = entries.filter(entry =>
       entry.isFile() &&
       !entry.name.startsWith('.') &&
-      MEDIA_EXTENSIONS.has(path.extname(entry.name).toLowerCase())
+      HISTORY_VIDEO_EXTENSIONS.has(path.extname(entry.name).toLowerCase())
     );
 
     const fileStats = await Promise.all(

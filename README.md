@@ -9,8 +9,8 @@ Local web app for downloading YouTube video/audio with `yt-dlp`, optimized for l
 - Quality options from `360p` up to `4K`
 - Real-time progress + logs via SSE
 - Queue support (default single active download for lower resource usage)
-- Download history panel
-- Downloads saved to project-local `Youtube/`
+- Download history panel (video formats only, to avoid clutter)
+- Downloads saved to `/Users/overwatch/Downloads`
 - Optional macOS login auto-start (best for pinned browser tabs)
 
 ## Requirements
@@ -99,7 +99,7 @@ Default low-impact tuning:
 ## Useful environment variables
 
 - `PORT` (default `3000`)
-- `DOWNLOADS_DIR` (default `./Youtube`)
+- `DOWNLOADS_DIR` (default `/Users/overwatch/Downloads`)
 - `MAX_CONCURRENT_DOWNLOADS` (default `1`)
 - `MAX_QUEUE_SIZE` (default `10`)
 - `LOW_IMPACT_MODE` (`1` default)
@@ -115,6 +115,13 @@ Default low-impact tuning:
 
 - `GET /api/health` -> lightweight readiness check
 - `GET /api/config` -> active low-impact/default tuning values
+
+## Download history behavior
+
+- History reads from the active downloads directory (default `/Users/overwatch/Downloads`).
+- To avoid clutter, history only lists video containers:
+  - `mp4`, `mkv`, `webm`, `avi`, `mov`, `m4v`, `flv`, `ts`, `m2ts`
+- Audio files and unrelated files in Downloads are intentionally excluded from history.
 
 ## Troubleshooting
 
@@ -138,7 +145,7 @@ Default low-impact tuning:
 │   ├── app.html
 │   ├── app.js
 │   └── style.css
-├── Youtube/
+├── Youtube/                            # optional local folder if you override DOWNLOADS_DIR
 ├── Launch YouTube Downloader.command
 ├── setup-launch-agent.sh
 ├── remove-launch-agent.sh

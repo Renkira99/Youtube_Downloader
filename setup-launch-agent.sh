@@ -8,7 +8,7 @@ LOG_DIR="$HOME/Library/Logs/YoutubeDownloader"
 OUT_LOG="$LOG_DIR/server.out.log"
 ERR_LOG="$LOG_DIR/server.err.log"
 NODE_BIN="$(command -v node)"
-DOWNLOADS_DIR="$APP_DIR/Youtube"
+DOWNLOADS_DIR="/Users/overwatch/Downloads"
 
 if [ -z "$NODE_BIN" ]; then
   echo "Error: node not found in PATH."
@@ -16,8 +16,7 @@ if [ -z "$NODE_BIN" ]; then
   exit 1
 fi
 
-mkdir -p "$HOME/Library/LaunchAgents" "$LOG_DIR"
-mkdir -p "$DOWNLOADS_DIR"
+mkdir -p "$HOME/Library/LaunchAgents" "$LOG_DIR" "$DOWNLOADS_DIR"
 
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
