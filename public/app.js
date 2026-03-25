@@ -142,6 +142,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const progressBucket = Math.floor(data.percent / 5);
+        // Detect new download phase (e.g. audio after video) — percent resets to ~0
+        if (data.percent < 2 && lastProgressLogBucket > 5) {
+          lastProgressLogBucket = -1;
+        }
         if (progressBucket > lastProgressLogBucket || data.percent >= 100) {
           appendLog(data.message, 'progress');
           lastProgressLogBucket = progressBucket;
